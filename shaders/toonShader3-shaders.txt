@@ -1,0 +1,207 @@
+// Vertex shader
+#if defined(WEBGL2) || defined(WEBGPU)
+precision highp sampler2DArray;
+#endif
+precision highp float;
+
+//Attributes
+attribute vec3 position;
+attribute vec3 normal;
+
+
+//Uniforms
+uniform mat4 u_World;
+uniform vec3 lightData;
+uniform vec4 lightColor;
+uniform mat4 u_ViewProjection;
+uniform vec3 u_SpecularColor;
+uniform float u_Diffusecutoff;
+uniform vec3 u_cameraPosition;
+uniform float u_Glossiness;
+uniform float u_SpecularCutoff;
+uniform vec3 u_AmbientLight;
+uniform vec3 u_DiffuseColor;
+uniform vec3 u_RimColor;
+uniform float u_RimIntensity;
+uniform float u_RimCutoff;
+uniform vec3 u_SurfaceColor;
+
+
+//Varyings
+varying vec4 v_output2;
+varying vec3 v_direction;
+varying vec4 v_output1;
+
+
+//World normal (N)
+#include<helperFunctions>
+
+
+
+//Entry point
+void main(void) {
+
+//World normal (N)
+mat3 u_World_NUS = mat3(u_World);
+#ifdef NONUNIFORMSCALING
+u_World_NUS = transposeMat3(inverseMat3(u_World_NUS));
+#endif
+vec4 output2 = vec4(u_World_NUS * normal, 0.0);
+
+//WorldPos
+vec4 output1 = u_World * vec4(position, 1.0);
+
+//Light information (L)
+#ifdef LIGHTPOINTTYPE0
+vec3 direction = normalize(output1.xyz - lightData);
+#else
+vec3 direction = lightData;
+#endif
+vec3 color1 = lightColor.rgb;
+float intensity = lightColor.a;
+
+//WorldPos * ViewProjectionTransform
+vec4 output0 = u_ViewProjection * output1;
+
+//VertexOutput
+gl_Position = output0;
+v_output2 = output2;
+v_direction = direction;
+v_output1 = output1;
+
+}
+
+// Fragment shader
+#if defined(PREPASS)
+#extension GL_EXT_draw_buffers : require
+layout(location = 0) out highp vec4 glFragData[SCENE_MRT_COUNT];
+highp vec4 gl_FragColor;
+#endif
+#if defined(WEBGL2) || defined(WEBGPU)
+precision highp sampler2DArray;
+#endif
+precision highp float;
+
+//Uniforms
+uniform mat4 u_World;
+uniform vec3 lightData;
+uniform vec4 lightColor;
+uniform mat4 u_ViewProjection;
+uniform vec3 u_SpecularColor;
+uniform float u_Diffusecutoff;
+uniform vec3 u_cameraPosition;
+uniform float u_Glossiness;
+uniform float u_SpecularCutoff;
+uniform vec3 u_AmbientLight;
+uniform vec3 u_DiffuseColor;
+uniform vec3 u_RimColor;
+uniform float u_RimIntensity;
+uniform float u_RimCutoff;
+uniform vec3 u_SurfaceColor;
+
+
+//Varyings
+varying vec4 v_output2;
+varying vec3 v_direction;
+varying vec4 v_output1;
+
+
+//FragmentOutput
+#include<helperFunctions>
+
+
+
+//Entry point
+void main(void) {
+
+//N
+vec3 xyz3 = v_output2.xyz;
+
+//N (Normalized)
+vec3 output12 = normalize(xyz3);
+
+//L (Normalized)
+vec3 output13 = normalize(v_direction);
+
+//N Dot L
+float output11 = dot(output12, output13);
+
+//Quantized Diffuse Lighting Intensity
+float output10 = step(u_Diffusecutoff, output11);
+
+//View direction
+vec3 output18 = normalize(u_cameraPosition - v_output1.xyz);
+
+//V (Normalized)
+vec3 output17 = normalize(output18);
+
+//H  
+vec3 output16 = output13 + output17;
+
+//H (Normalized)
+vec3 output15 = normalize(output16);
+
+//N Dot H
+float output14 = dot(output12, output15);
+
+//Specular Factor 
+float output9 = output10 * output14;
+
+//Glossiness ^2
+float output19 = u_Glossiness * u_Glossiness;
+
+//Specular Intensity 
+float output8 = pow(max(output9, 0.), output19);
+
+//Quantized Specular Intensity
+float output7 = step(u_SpecularCutoff, output8);
+
+//Specular Lighting Calculation
+vec3 output6 = u_SpecularColor * output7;
+
+//Diffuse Lighting Calculation
+vec3 output21 = u_DiffuseColor * output10;
+
+//Add Ambient to Diffusion
+vec3 output20 = u_AmbientLight + output21;
+
+//Add Specular + Ambient + Diffuse
+vec3 output5 = output6 + output20;
+
+//N Dot V
+float output26 = dot(output17, output12);
+
+//One minus N Dot V
+float output25 = 1. - output26;
+
+//Rim Factor
+float output27 = pow(max(output11, 0.), u_RimIntensity);
+
+//Rim Intensity (Factored)
+float output24 = output25 * output27;
+
+//Quantized Rim Light Intensity
+float output23 = step(u_RimCutoff, output24);
+
+//Scale
+vec3 output22 = u_RimColor * output23;
+
+//Add Rim + Spec + Diff + Amb
+vec3 output4 = output5 + output22;
+
+//Light x Surface
+vec3 output3 = output4 * u_SurfaceColor;
+
+//FragmentOutput
+gl_FragColor  = vec4(output3, 1.0);
+#ifdef CONVERTTOLINEAR0
+gl_FragColor  = toLinearSpace(gl_FragColor);
+#endif
+#ifdef CONVERTTOGAMMA0
+gl_FragColor  = toGammaSpace(gl_FragColor);
+#endif
+#if defined(PREPASS)
+gl_FragData[0] = gl_FragColor;
+#endif
+
+}
